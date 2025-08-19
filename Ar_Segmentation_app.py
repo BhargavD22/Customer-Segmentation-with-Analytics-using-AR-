@@ -1,4 +1,4 @@
-# ar_segmentation_app.py
+# ar_customer_dashboard.py
 
 import streamlit as st
 import pandas as pd
@@ -11,27 +11,23 @@ import plotly.express as px
 # ------------------
 # PAGE SETUP
 # ------------------
-st.set_page_config(page_title="AR Customer Segmentation", layout="wide")
-st.title("📊 AR Customer Segmentation Dashboard")
+st.set_page_config(page_title="AR Customer Insights Dashboard", layout="wide")
+st.title("👤 AR Customer-Centric Dashboard")
 
 # ------------------
 # LOAD DATA
 # ------------------
-st.sidebar.header("Step 1: Upload Your Dataset")
-file = st.sidebar.file_uploader("Upload AR Dataset (.csv)", type=["csv"])
+st.sidebar.header("Upload Dataset")
+file = st.sidebar.file_uploader("Upload your AR dataset (.csv)", type=["csv"])
 
 if file:
     df = pd.read_csv(file)
-    st.subheader("Raw Dataset Preview")
+    st.subheader("🔍 Raw Data Preview")
     st.dataframe(df.head())
 
     # ------------------
     # FEATURE ENGINEERING
     # ------------------
-    st.sidebar.header("Step 2: Feature Selection")
-    st.markdown("---")
-    
-    # Derive or clean needed columns
     df['Avg_Payment_Delay'] = df.groupby('Customer_ID')['Payment_Delay_Days'].transform('mean')
     df['Total_Invoice_Amount'] = df.groupby('Customer_ID')['Invoice_Amount'].transform('sum')
     df['Total_Amount_Paid'] = df.groupby('Customer_ID')['Amount_Paid'].transform('sum')
@@ -40,7 +36,7 @@ if file:
     df['Credit_Utilization_Velocity'] = df.groupby('Customer_ID')['Credit_Utilization_Velocity'].transform('mean')
     df['Response_to_Reminder_Ratio'] = df.groupby('Customer_ID')['Response_to_Reminder_Ratio'].transform('mean')
 
-    # Drop duplicates to keep one row per customer
+    # One row per customer
     features_df = df.drop_duplicates(subset='Customer_ID')[[
         'Customer_ID',
         'Avg_Payment_Delay',
@@ -52,60 +48,49 @@ if file:
         'Response_to_Reminder_Ratio'
     ]].dropna()
 
-    st.subheader("Selected Features per Customer")
-    st.dataframe(features_df.head())
-
     # ------------------
-    # CLUSTERING (K-MEANS)
+    # CLUSTERING FOR CONTEXT
     # ------------------
-    st.sidebar.header("Step 3: Choose Clustering Settings")
-    num_clusters = st.sidebar.slider("Select number of clusters:", 2, 10, 4)
-
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(features_df.drop(columns=['Customer_ID']))
-
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+    kmeans = KMeans(n_clusters=4, random_state=42)
     features_df['Segment'] = kmeans.fit_predict(X_scaled)
 
     # ------------------
-    # PCA FOR VISUALIZATION
+    # CUSTOMER CENTRIC VIEW
     # ------------------
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X_scaled)
-    features_df['PCA1'] = X_pca[:, 0]
-    features_df['PCA2'] = X_pca[:, 1]
+    st.markdown("---")
+    st.header("🔎 Explore Individual Customers")
+
+    customer_list = features_df['Customer_ID'].sort_values().unique()
+    selected_customer = st.selectbox("Select a customer to explore:", customer_list)
+
+    customer_info = features_df[features_df['Customer_ID'] == selected_customer]
+    full_customer_txns = df[df['Customer_ID'] == selected_customer].sort_values(by='Invoice_Date')
+
+    st.subheader(f"📌 Key Metrics for Customer: {selected_customer}")
+    st.metric("Total Invoice Amount", f"₹{float(customer_info['Total_Invoice_Amount']):,.2f}")
+    st.metric("Total Outstanding", f"₹{float(customer_info['Total_Outstanding']):,.2f}")
+    st.metric("Avg Payment Delay", f"{float(customer_info['Avg_Payment_Delay']):.2f} days")
+    st.metric("Payment Consistency", f"{float(customer_info['Payment_Consistency_Index']):.2f}")
+    st.metric("Response to Reminders", f"{float(customer_info['Response_to_Reminder_Ratio']):.2f}")
 
     # ------------------
-    # SEGMENTATION PLOT
+    # VISUALS
     # ------------------
-    st.subheader("📌 Customer Segments (PCA View)")
-    fig = px.scatter(features_df, x='PCA1', y='PCA2', color=features_df['Segment'].astype(str),
-                     hover_data=['Customer_ID'], title="Customer Clusters (2D PCA)")
+    st.subheader("📈 Customer Transaction History")
+    fig = px.line(full_customer_txns, x='Invoice_Date', y='Outstanding_Amount', title="Outstanding Over Time")
     st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------
-    # KPI SECTION
-    # ------------------
+    fig2 = px.bar(full_customer_txns, x='Invoice_Date', y='Invoice_Amount', title="Invoices Raised")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("🧾 All Transactions for Selected Customer")
+    st.dataframe(full_customer_txns.reset_index(drop=True))
+
     st.markdown("---")
-    st.subheader("📈 Business KPIs by Segment")
-
-    kpi_df = features_df.groupby('Segment').agg({
-        'Total_Outstanding': 'mean',
-        'Avg_Payment_Delay': 'mean',
-        'Payment_Consistency_Index': 'mean',
-        'Response_to_Reminder_Ratio': 'mean'
-    }).reset_index()
-
-    st.dataframe(kpi_df.style.format("{:.2f}"))
-
-    # ------------------
-    # SEGMENT DETAILS
-    # ------------------
-    st.markdown("---")
-    st.subheader("🔍 Segment Profiles")
-    selected_segment = st.selectbox("Select a segment to view its customers", sorted(features_df['Segment'].unique()))
-    st.dataframe(features_df[features_df['Segment'] == selected_segment])
+    st.success("This dashboard provides customer-level AR insights including payment behavior, risk profiling, and engagement.")
 
 else:
-    st.warning("📂 Please upload a CSV file to proceed.")
-    st.markdown("You can use the synthetic dataset we generated earlier for this AR segmentation use case.")
+    st.warning("📂 Please upload a valid CSV file to proceed.")
+    st.markdown("You can use the synthetic dataset generated previously.")
