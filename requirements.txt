@@ -1,4 +1,6 @@
 streamlit
 pandas
 plotly
-streamlit-elements
+matplotlib
+fpdf
+xlsxwriter
