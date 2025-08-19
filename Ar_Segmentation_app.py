@@ -1,79 +1,121 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from streamlit_elements import elements, mui, html
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+import io
 
-# ========== CONFIG ==========
-st.set_page_config(page_title="AR Dashboard", layout="wide")
-st.title("📊 Customer AR Analytics Dashboard")
-st.markdown("Visualize customer metrics with interactivity and style.")
+st.set_page_config(layout="wide", page_title="AR Analytics & Customer Segmentation")
 
-# ========== LOAD CSV FROM GITHUB ==========
-CSV_URL = "https://github.com/BhargavD22/Customer-Segmentation-with-Analytics-using-AR-/blob/b8891679954c60b12600fe072c164b515107e447/synthetic_ar_dataset_noisy.csv"
+st.title("📊 Customer AR Insights Dashboard")
+st.markdown("Upload your AR dataset CSV to get insights, KPIs, segmentation, and reports.")
 
-@st.cache_data
-def load_data():
-    return pd.read_csv(CSV_URL)
+# File uploader
+uploaded_file = st.file_uploader("Upload your AR CSV file", type=["csv"])
 
-try:
-    df = load_data()
-except Exception as e:
-    st.error(f"Failed to load data. Please check the GitHub CSV URL.\n\n{e}")
-    st.stop()
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, parse_dates=["Invoice_Date", "Due_Date", "Last_Payment_Date"])
+    
+    # BASIC CLEANUP
+    df["Payment_Delay_Days"] = pd.to_numeric(df["Payment_Delay_Days"], errors="coerce")
+    df["Invoice_Amount"] = pd.to_numeric(df["Invoice_Amount"], errors="coerce")
+    df["Outstanding_Amount"] = pd.to_numeric(df["Outstanding_Amount"], errors="coerce")
 
-# ========== CUSTOMER SELECTION ==========
-customer_list = df['CustomerID'].unique()
-selected_customer = st.selectbox("Select a Customer", customer_list)
+    st.success("✅ File successfully uploaded and parsed.")
 
-cust_data = df[df['CustomerID'] == selected_customer].iloc[0]
+    st.subheader("📌 Key Business KPIs")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("💰 Total Invoice Amount", f"₹ {df['Invoice_Amount'].sum():,.0f}")
+    col2.metric("📉 Total Outstanding", f"₹ {df['Outstanding_Amount'].sum():,.0f}")
+    col3.metric("⏱️ Avg Payment Delay", f"{df['Payment_Delay_Days'].mean():.2f} days")
+    col4.metric("📈 Avg Consistency Index", f"{df['Payment_Consistency_Index'].mean():.2f}")
+    col5.metric("📬 Avg Response Ratio", f"{df['Response_to_Reminder_Ratio'].mean():.2f}")
 
-# ========== KPI ANIMATED TILES ==========
-st.markdown("## 📌 Key Metrics")
+    st.markdown("---")
 
-with elements("metrics"):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        with mui.Card(sx={"p": 3, "m": 1, "boxShadow": 3}):
-            mui.Typography("Total Invoice Amount", variant="h6")
-            mui.Typography(f"₹{cust_data['TotalInvoiceAmount']:,.2f}", variant="h4", color="primary")
+    # SEGMENTATION
+    st.subheader("📊 Customer Segmentation & Risk Overview")
 
-    with col2:
-        with mui.Card(sx={"p": 3, "m": 1, "boxShadow": 3}):
-            mui.Typography("Total Outstanding", variant="h6")
-            mui.Typography(f"₹{cust_data['TotalOutstanding']:,.2f}", variant="h4", color="error")
+    customer_summary = df.groupby("Customer_ID").agg({
+        "Invoice_Amount": "sum",
+        "Outstanding_Amount": "sum",
+        "Payment_Delay_Days": "mean",
+        "Payment_Consistency_Index": "mean",
+        "Response_to_Reminder_Ratio": "mean",
+        "High_Risk_Flag": "max"
+    }).reset_index()
 
-    with col3:
-        with mui.Card(sx={"p": 3, "m": 1, "boxShadow": 3}):
-            mui.Typography("Avg Payment Delay", variant="h6")
-            mui.Typography(f"{cust_data['AvgPaymentDelay']:.2f} days", variant="h4", color="secondary")
+    customer_summary["Risk_Score"] = customer_summary["High_Risk_Flag"].apply(lambda x: "🔴 High" if x == 1 else "🟢 Low")
 
-st.markdown("")
+    st.dataframe(customer_summary)
 
-with elements("more_metrics"):
-    col4, col5 = st.columns(2)
-    with col4:
-        with mui.Card(sx={"p": 3, "m": 1, "boxShadow": 3}):
-            mui.Typography("Payment Consistency", variant="h6")
-            mui.Typography(f"{cust_data['PaymentConsistency']:.2f}", variant="h4", color="success")
+    # TREND VISUALS
+    st.subheader("📈 Invoice & Outstanding Trend")
 
-    with col5:
-        with mui.Card(sx={"p": 3, "m": 1, "boxShadow": 3}):
-            mui.Typography("Response to Reminders", variant="h6")
-            mui.Typography(f"{cust_data['ResponseToReminders']:.2f}", variant="h4", color="info")
+    df["Invoice_Month"] = df["Invoice_Date"].dt.to_period("M").astype(str)
+    monthly_summary = df.groupby("Invoice_Month")[["Invoice_Amount", "Outstanding_Amount"]].sum().reset_index()
 
-# ========== COMPARISON CHARTS ==========
-st.markdown("## 📉 Customer Comparison")
+    fig = px.line(monthly_summary, x="Invoice_Month", y=["Invoice_Amount", "Outstanding_Amount"],
+                  labels={"value": "Amount", "variable": "Metric"}, markers=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-col1, col2 = st.columns(2)
+    # CUSTOMER COMPARISON
+    st.subheader("👥 Compare Customers")
 
-with col1:
-    fig1 = px.bar(df, x='CustomerID', y='AvgPaymentDelay',
-                  color='CustomerID', title="Average Payment Delay by Customer")
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    fig2 = px.bar(df, x='CustomerID', y='TotalOutstanding',
-                  color='CustomerID', title="Total Outstanding by Customer")
+    fig2 = px.scatter(customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
+                      color="Risk_Score", size="Invoice_Amount", hover_name="Customer_ID",
+                      title="Outstanding vs Delay with Risk")
     st.plotly_chart(fig2, use_container_width=True)
 
-st.caption("📎 Use this dashboard to identify payment behaviors and act early.")
+    # INDIVIDUAL CUSTOMER VIEW
+    st.subheader("🔍 Individual Customer View")
+    selected_customer = st.selectbox("Select a Customer ID", customer_summary["Customer_ID"].unique())
+
+    if selected_customer:
+        cust_data = df[df["Customer_ID"] == selected_customer]
+        cust_summary = customer_summary[customer_summary["Customer_ID"] == selected_customer]
+
+        st.write("### Customer Metrics")
+        st.metric("Total Invoice Amount", f"₹ {cust_summary['Invoice_Amount'].values[0]:,.0f}")
+        st.metric("Total Outstanding", f"₹ {cust_summary['Outstanding_Amount'].values[0]:,.0f}")
+        st.metric("Avg Payment Delay", f"{cust_summary['Payment_Delay_Days'].values[0]:.2f} days")
+        st.metric("Consistency Index", f"{cust_summary['Payment_Consistency_Index'].values[0]:.2f}")
+        st.metric("Reminder Response Ratio", f"{cust_summary['Response_to_Reminder_Ratio'].values[0]:.2f}")
+        st.metric("Risk Score", cust_summary["Risk_Score"].values[0])
+
+        st.write("### Invoices")
+        st.dataframe(cust_data)
+
+    # EXPORT SECTION
+    st.subheader("📤 Export Reports")
+
+    def to_excel(df):
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name="Customer_Summary")
+        return out.getvalue()
+
+    excel = to_excel(customer_summary)
+    st.download_button("📥 Download Excel Report", data=excel, file_name="customer_summary.xlsx")
+
+    def generate_pdf(data):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, txt="Customer AR Summary Report", ln=True, align='C')
+        pdf.set_font("Arial", size=12)
+        for i, row in data.iterrows():
+            pdf.ln(5)
+            pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Risk: {row['Risk_Score']}", ln=True)
+            pdf.cell(200, 10, txt=f"Total Invoice: ₹{row['Invoice_Amount']:,.0f}, Outstanding: ₹{row['Outstanding_Amount']:,.0f}", ln=True)
+        pdf_output = io.BytesIO()
+        pdf.output(pdf_output)
+        return pdf_output.getvalue()
+
+    pdf_file = generate_pdf(customer_summary)
+    st.download_button("📄 Download PDF Report", data=pdf_file, file_name="customer_summary.pdf")
+
+else:
+    st.warning("⚠️ Please upload a valid AR CSV to proceed.")
