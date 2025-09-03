@@ -69,7 +69,7 @@ def main():
     st.title("Accounts Receivable Predictive Dashboard 🔮")
     st.markdown("A proactive tool to predict and prioritize high-risk invoices, powered by machine learning.")
     
-    # Direct CSV read without a separate function
+    # Direct CSV read
     df = pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
     df, features = preprocess_data(df)
@@ -101,14 +101,36 @@ def main():
     
     df['Cluster_Color'] = df['Risk_Cluster'].map(cluster_colors)
     
-    st.sidebar.header("Filter by Customer Industry")
-    industries = ['All'] + sorted(df['Customer_Industry'].unique().tolist())
-    selected_industry = st.sidebar.selectbox("Select an industry:", industries)
+    st.sidebar.header("Filter Options")
     
-    if selected_industry != 'All':
-        df_display = df[df['Customer_Industry'] == selected_industry]
+    # Individual customer filter
+    customer_ids = ['All'] + sorted(df['Customer_ID'].unique().tolist())
+    selected_customer = st.sidebar.selectbox("Select a Customer:", customer_ids)
+    
+    # If a specific customer is selected, override the industry filter
+    if selected_customer != 'All':
+        df_display = df[df['Customer_ID'] == selected_customer]
+        st.header(f"Customer Profile: {selected_customer} 👤")
+        
+        # Display individual customer's risk flags
+        col_flag, col_ml = st.columns(2)
+        with col_flag:
+            original_flag = df_display['High_Risk_Flag'].mode()[0]
+            st.metric(label="Original Flag 🚩", value="High Risk" if original_flag == 1 else "Low Risk")
+        
+        with col_ml:
+            ml_cluster = df_display['Risk_Cluster'].mode()[0]
+            st.metric(label="ML Prediction 🔮", value=ml_cluster)
+            
     else:
-        df_display = df.copy()
+        # Industry filter
+        industries = ['All'] + sorted(df['Customer_Industry'].unique().tolist())
+        selected_industry = st.sidebar.selectbox("Select an Industry:", industries)
+        
+        if selected_industry != 'All':
+            df_display = df[df['Customer_Industry'] == selected_industry]
+        else:
+            df_display = df.copy()
 
     df_display = df_display.sort_values(by='risk_probability', ascending=False)
 
