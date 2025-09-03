@@ -16,7 +16,7 @@ from google.oauth2 import service_account
 st.set_page_config(layout="wide", page_title="AR Analytics & Customer Segmentation")
 
 st.title("📊 Customer AR Insights Dashboard")
-st.markdown("Data is securely fetched from **BigQuery** (or you can upload a CSV).")
+st.markdown("Data is securely fetched from **BigQuery** or uploaded via CSV.")
 
 # ==============================
 # BIGQUERY CONNECTION
@@ -30,33 +30,12 @@ df = None
 fetch_option = st.radio("Select Data Source:", ["BigQuery", "Upload CSV"], horizontal=True)
 
 if fetch_option == "BigQuery":
-    dataset_id = st.secrets["bigquery"]["dataset"]
-    table_id = st.secrets["bigquery"]["table"]
-
     if st.button("🔗 Fetch Data from BigQuery"):
         try:
             client = bigquery.Client(credentials=credentials, project=project_id)
-            query = f"""
-                SELECT 
-                    Invoice_No,
-                    Customer_ID,
-                    Customer_Industry,
-                    Invoice_Date,
-                    Due_Date,
-                    Invoice_Amount,
-                    Amount_Paid,
-                    Outstanding_Amount,
-                    Status,
-                    Last_Payment_Date,
-                    Aging_Bucket,
-                    Payment_Delay_Days,
-                    Partial_Payment_Flag,
-                    High_Risk_Flag,
-                    Payment_Consistency_Index,
-                    Credit_Utilization_Velocity,
-                    Negotiation_Frequency,
-                    Response_to_Reminder_Ratio
-                FROM `{project_id}.{dataset_id}.{table_id}`
+            query = """
+                SELECT *
+                FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
             """
             df = client.query(query).to_dataframe()
 
