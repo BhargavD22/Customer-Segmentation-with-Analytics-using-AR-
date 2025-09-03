@@ -1,237 +1,119 @@
 import streamlit as st
 import pandas as pd
-from google.cloud import bigquery
-from google.oauth2 import service_account
 import plotly.express as px
-from google.api_core.exceptions import GoogleAPIError
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+import io
 
-# ==============================
-# PAGE CONFIG
-# ==============================
-st.set_page_config(page_title="Customer AR Insights Dashboard", layout="wide")
+st.set_page_config(layout="wide", page_title="AR Analytics & Customer Segmentation")
 
-# ==============================
-# STYLING
-# ==============================
-MIRACLE_BLUE = "#00AEEF"
-MIRACLE_RED = "#FF4B4B"
-MIRACLE_GREEN = "#2ECC71"
+st.title("📊 Customer AR Insights Dashboard")
+st.markdown("Upload your AR dataset CSV to get insights, KPIs, segmentation, and reports.")
 
-st.markdown(
-    """
-    <style>
-    .kpi-card {
-        background-color: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 15px;
-        padding: 20px;
-        margin: 10px;
-        text-align: center;
-        box-shadow: 0px 4px 10px rgba(0,0,0,0.05);
-    }
-    .kpi-card h4 {
-        margin: 0;
-        color: #333;
-        font-weight: 600;
-    }
-    .kpi-card p {
-        margin: 5px 0;
-        font-size: 22px;
-        font-weight: bold;
-    }
-    .logo-container {
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        margin-bottom: 20px;
-    }
-    .logo-container h1 {
-        color: #333;
-        margin: 0;
-    }
-    .footer {
-        margin-top: 50px;
-        margin-bottom: 10px;
-        text-align: center;
-        opacity: 0.7;
-    }
-    .footer img {
-        width: 140px;
-    }
-    .footer p {
-        margin-top: 5px;
-        font-size: 13px;
-        color: #555;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# File uploader
+uploaded_file = st.file_uploader("Upload your AR CSV file", type=["csv"])
 
-# A more robust way to handle the logo and title HTML
-LOGO_URL = "https://i.imgur.com/your-public-logo-url.png" # Replace with a public URL for deployment
-TITLE_HTML = f"""
-    <div class="logo-container">
-        <img src="{LOGO_URL}" alt="Miracle Logo" width="220">
-        <h1>Customer AR Insights Dashboard</h1>
-    </div>
-"""
-st.markdown(TITLE_HTML, unsafe_allow_html=True)
-st.write("Data is securely fetched from **BigQuery** or uploaded via **CSV**.")
+if uploaded_file:
+    df = pd.read_csv(uploaded_file, parse_dates=["Invoice_Date", "Due_Date", "Last_Payment_Date"])
+    
+    # BASIC CLEANUP
+    df["Payment_Delay_Days"] = pd.to_numeric(df["Payment_Delay_Days"], errors="coerce")
+    df["Invoice_Amount"] = pd.to_numeric(df["Invoice_Amount"], errors="coerce")
+    df["Outstanding_Amount"] = pd.to_numeric(df["Outstanding_Amount"], errors="coerce")
 
-# ==============================
-# LOAD DATA
-# ==============================
-@st.cache_data
-def load_data_from_bigquery():
-    try:
-        # NOTE: This temporary fix hardcodes the credentials to bypass a Streamlit secrets issue.
-        # In a production environment, you should use st.secrets.
-        gcp_service_account_dict = {
-            "type": "service_account",
-            "project_id": "mss-data-engineer-sandbox",
-            "private_key_id": "f301697db532c16b549026a2de0fa650c5e8a8e4",
-            "private_key": """-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDEBAQKGaJ4s95C
-s/E/OvUSjVD5USB0k9jC7MHVxidEGDp0ccO5B8mB3/pjrVF80LiuBz3RAaYDHaN9
-AOVlcCp/QNU0R84hTFxp/6TiywNF6aPjjzcD9KJt4ALFVl9aVT5hre/V11utjGag
-tUnf6n6FPA4+lbPKwm17TRaf+qyTENZtlZxgU2lRVpe7oO4wl4EkqLkkI5ltbA8x
-iFaixx9hWTWkVgzUKaZCFZb6cZjaKBVoFNE2Le5PZN0CDuaHgj58NoJy4P9aCv6q
-UFPfGxBnHx9B27DOKTHzKthiIYGCEQkkhYfIDhc9IA9D1ftIl0iRGuYNy11+BQFt
-D30He6UfAgMBAAECggEAMBeqJA5BEitTc3sxzCk7eudIQDt64o9pxf2P21LoTGlD
-YlGNS2cRNjfNd8pM7XpKbYxiStcEM8yAUcm3/sjj7F/sT4z0kq/pFqq9+lUEAxG9
-f7YiMerCNYIaO++iqoeyrAWgjA9wM2b4wSJpszIWA7uF5S4WtD863F9AF1VKJTS0
-uBcPI8NzkqJTyYWFtmSIObRZpRH81VTm4S3knS4WsNtN77KjTOZkA6+MQdARq1KA
-9MWRvU/BOSsPrzTUV1GyLItuw8MefJnX0SPrLTx5SYX5ePNkeJe1qrxCWPeTZfmN
-WXUviUEDbGh+0VX6Do4skQ0/HU6RDo+19Yir7HIYtQKBgQDvB+ta1cAyhMKWqhBH
-Qu7HUFpDYCWt9/aMIJ6GK49XMq0oyeAnwj6vwfzcknQSmph6pHUPrSOchc0pJiAT
-ueQLj1UfwDo+XrDT5pMUXQOo07PYfVxM2jX790sqewbBxMTgUMaQK8nY/yrHZ4e7
-e90aEw65pHKT9FNqbIouexMiawKBgQDR7ll2N+mOQFEQ54NWpgsC+2gwyiKec8ys
-7cN88Yr4fsEVwtUubtAtZwEYMMFsXt/lquYDxKPoZHNZfOSV50Yd38KIrI43PR29
-mGYZmyP7UmDG1BYZTt0JcjDoCMdFGZmDkW9UvZqorrH8yc0HbF7PRhzK0Mo5zVA9
-wOoojSf9HQKBgQDfHx5TaQmCXqihKNgPHOx0wo2vLLWfYcITZXN0PH8N3zEBzQdf
-NZN8TnDxmAefQg2pFZBr9Ks0NTWf/oWcxD2ZiM7l13LGu28GLcoHDRgYZJ0RLVuW
-JW6U526Tlcll4H4CAYSIGUfONcnB3uM1X9awuy9YnKeTclLXGcAWyS3ARwKBgCjZ
-B+9I0dksCpoPci7aACqEYLGdoz7RqXG8kd0t4qyXfVqOnox6Y2dyM3RRiFFd5JL7
-veXdzUbaxNcUxiWk6q/FakTNzp5Q9gh+Lt+soEO2s738ZpBmF/xOi9WaX6vCX2yK
-T+9dNUq9M0TMv2hCXfBW5CNSnQbCPGrHrshVLwLBAoGBAOjmWD22u53wQNwpVlbo
-F3wjZ+eXnaqB32KG9fhuP1NJfVaZ65INBLboBgfTbsNUXqD+tk5pgDPWF+APNMa/
-1ZuHqqUsY7ybsX/LVBYlt/gVJmFFRWFy/dOqLJIQ9iu+KSldYlSBdVYc4kkLMYPe
-IO3duHMlIwG8BOBMW9ASoGvE
------END PRIVATE KEY-----""",
-            "client_email": "dataengg-training@mss-data-engineer-sandbox.iam.gserviceaccount.com",
-            "client_id": "116876153342903559080",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "type": "service_account"
-        }
-        credentials = service_account.Credentials.from_service_account_info(gcp_service_account_dict)
-        client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-        
-        query = """
-            SELECT *
-            FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
-        """
-        df = client.query(query).to_dataframe()
-        return df
-    except GoogleAPIError as e:
-        st.error(f"Error connecting to BigQuery: {e}")
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
-        return None
+    st.success("✅ File successfully uploaded and parsed.")
 
-# File uploader option
-data_source = st.radio("Select Data Source:", ["BigQuery", "Upload CSV"], horizontal=True)
+    st.subheader("📌 Key Business KPIs")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("💰 Total Invoice Amount", f"₹ {df['Invoice_Amount'].sum():,.0f}")
+    col2.metric("📉 Total Outstanding", f"₹ {df['Outstanding_Amount'].sum():,.0f}")
+    col3.metric("⏱️ Avg Payment Delay", f"{df['Payment_Delay_Days'].mean():.2f} days")
+    col4.metric("📈 Avg Consistency Index", f"{df['Payment_Consistency_Index'].mean():.2f}")
+    col5.metric("📬 Avg Response Ratio", f"{df['Response_to_Reminder_Ratio'].mean():.2f}")
 
-df = None
-if data_source == "BigQuery":
-    df = load_data_from_bigquery()
-elif data_source == "Upload CSV":
-    uploaded_file = st.file_uploader("Upload your CSV", type="csv")
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-        except Exception as e:
-            st.error(f"Error reading CSV file: {e}")
-            df = None
-    else:
-        st.info("Please upload a CSV file to continue.")
+    st.markdown("---")
 
-if df is None or df.empty:
-    st.stop()
+    # SEGMENTATION
+    st.subheader("📊 Customer Segmentation & Risk Overview")
 
-# ==============================
-# KPI METRICS (Minimalist Style)
-# ==============================
-st.markdown("### 📌 Key Business KPIs")
+    customer_summary = df.groupby("Customer_ID").agg({
+        "Invoice_Amount": "sum",
+        "Outstanding_Amount": "sum",
+        "Payment_Delay_Days": "mean",
+        "Payment_Consistency_Index": "mean",
+        "Response_to_Reminder_Ratio": "mean",
+        "High_Risk_Flag": "max"
+    }).reset_index()
 
-def kpi_card(title, value, unit="", threshold=None, higher_is_bad=True):
-    if threshold is not None:
-        if higher_is_bad:
-            color = MIRACLE_RED if value > threshold else MIRACLE_GREEN
-        else:
-            color = MIRACLE_GREEN if value > threshold else MIRACLE_RED
-    else:
-        color = MIRACLE_BLUE
+    customer_summary["Risk_Score"] = customer_summary["High_Risk_Flag"].apply(lambda x: "🔴 High" if x == 1 else "🟢 Low")
 
-    return f"""
-        <div class="kpi-card">
-            <h4>{title}</h4>
-            <p style="color:{color};">{value:,.2f}{unit}</p>
-        </div>
-    """
+    st.dataframe(customer_summary)
 
-col1, col2, col3, col4 = st.columns(4)
+    # TREND VISUALS
+    st.subheader("📈 Invoice & Outstanding Trend")
 
-with col1:
-    st.markdown(kpi_card("👥 Total Customers", df["Customer_ID"].nunique(), unit="", threshold=1000, higher_is_bad=False), unsafe_allow_html=True)
+    df["Invoice_Month"] = df["Invoice_Date"].dt.to_period("M").astype(str)
+    monthly_summary = df.groupby("Invoice_Month")[["Invoice_Amount", "Outstanding_Amount"]].sum().reset_index()
 
-with col2:
-    st.markdown(kpi_card("💰 Total Outstanding", df["Outstanding_Amount"].sum(), unit=" ₹", threshold=500000), unsafe_allow_html=True)
+    fig = px.line(monthly_summary, x="Invoice_Month", y=["Invoice_Amount", "Outstanding_Amount"],
+                  labels={"value": "Amount", "variable": "Metric"}, markers=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-with col3:
-    st.markdown(kpi_card("⏱ Avg Payment Delay", df["Payment_Delay_Days"].mean(), unit=" days", threshold=30), unsafe_allow_html=True)
+    # CUSTOMER COMPARISON
+    st.subheader("👥 Compare Customers")
 
-with col4:
-    st.markdown(kpi_card("⚠️ High Risk Customers", df[df["High_Risk_Flag"]==1]["Customer_ID"].nunique(), unit="", threshold=50), unsafe_allow_html=True)
+    fig2 = px.scatter(customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
+                      color="Risk_Score", size="Invoice_Amount", hover_name="Customer_ID",
+                      title="Outstanding vs Delay with Risk")
+    st.plotly_chart(fig2, use_container_width=True)
 
-# ==============================
-# CUSTOMER SELECTION + GRAPH
-# ==============================
-st.markdown("### 📊 Customer Insights")
+    # INDIVIDUAL CUSTOMER VIEW
+    st.subheader("🔍 Individual Customer View")
+    selected_customer = st.selectbox("Select a Customer ID", customer_summary["Customer_ID"].unique())
 
-selected_customer = st.selectbox("Select Customer", df["Customer_ID"].unique())
+    if selected_customer:
+        cust_data = df[df["Customer_ID"] == selected_customer]
+        cust_summary = customer_summary[customer_summary["Customer_ID"] == selected_customer]
 
-customer_data = df[df["Customer_ID"] == selected_customer]
+        st.write("### Customer Metrics")
+        st.metric("Total Invoice Amount", f"₹ {cust_summary['Invoice_Amount'].values[0]:,.0f}")
+        st.metric("Total Outstanding", f"₹ {cust_summary['Outstanding_Amount'].values[0]:,.0f}")
+        st.metric("Avg Payment Delay", f"{cust_summary['Payment_Delay_Days'].values[0]:.2f} days")
+        st.metric("Consistency Index", f"{cust_summary['Payment_Consistency_Index'].values[0]:.2f}")
+        st.metric("Reminder Response Ratio", f"{cust_summary['Response_to_Reminder_Ratio'].values[0]:.2f}")
+        st.metric("Risk Score", cust_summary["Risk_Score"].values[0])
 
-# Revenue Trend Graph
-fig = px.line(
-    customer_data,
-    x="Invoice_Date",
-    y="Invoice_Amount",
-    title=f"Revenue Trend for Customer {selected_customer}",
-    markers=True,
-    line_shape="spline",
-)
-fig.update_traces(line=dict(color=MIRACLE_BLUE))
-st.plotly_chart(fig, use_container_width=True)
+        st.write("### Invoices")
+        st.dataframe(cust_data)
 
-# ==============================
-# CUSTOMER DETAILS TABLE
-# ==============================
-st.markdown("### 📑 Customer Details")
-st.dataframe(customer_data, use_container_width=True)
+    # EXPORT SECTION
+    st.subheader("📤 Export Reports")
 
-# ==============================
-# FOOTER WATERMARK
-# ==============================
-st.markdown(
-    f"""
-    <hr style="margin-top:50px; margin-bottom:10px;">
-    <div class="footer">
-        <img src="{LOGO_URL}" alt="Miracle Logo">
-        <p>© 2025 Miracle Software Systems - All Rights Reserved</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    def to_excel(df):
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name="Customer_Summary")
+        return out.getvalue()
+
+    excel = to_excel(customer_summary)
+    st.download_button("📥 Download Excel Report", data=excel, file_name="customer_summary.xlsx")
+
+    def generate_pdf(data):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, txt="Customer AR Summary Report", ln=True, align='C')
+        pdf.set_font("Arial", size=12)
+        for i, row in data.iterrows():
+            pdf.ln(5)
+            pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Risk: {row['Risk_Score']}", ln=True)
+            pdf.cell(200, 10, txt=f"Total Invoice: ₹{row['Invoice_Amount']:,.0f}, Outstanding: ₹{row['Outstanding_Amount']:,.0f}", ln=True)
+        pdf_output = io.BytesIO()
+        pdf.output(pdf_output)
+        return pdf_output.getvalue()
+
+    pdf_file = generate_pdf(customer_summary)
+    st.download_button("📄 Download PDF Report", data=pdf_file, file_name="customer_summary.pdf")
+
+else:
+    st.warning("⚠️ Please upload a valid AR CSV to proceed.")
