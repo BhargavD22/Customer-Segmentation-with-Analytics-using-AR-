@@ -2,7 +2,7 @@ streamlit
 pandas
 plotly
 scikit-learn
-fpdf
 google-cloud-bigquery
 google-auth
 db-dtypes
+fpdf2
