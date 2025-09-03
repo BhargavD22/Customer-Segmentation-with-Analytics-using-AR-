@@ -29,7 +29,7 @@ if "df" not in st.session_state:
 # ==============================
 def load_data_from_bigquery():
     credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"]
+        st.secrets["bigquery"]
     )
     client = bigquery.Client(credentials=credentials, project=credentials.project_id)
     query = """
