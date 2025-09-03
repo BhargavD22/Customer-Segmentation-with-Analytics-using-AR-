@@ -3,10 +3,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import matplotlib.pyplot as plt
+from fpdf import FPDF
 import io
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from fpdf import FPDF
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
@@ -16,20 +17,35 @@ from google.oauth2 import service_account
 st.set_page_config(layout="wide", page_title="AR Analytics & Customer Segmentation")
 
 st.title("📊 Customer AR Insights Dashboard")
-st.markdown("Data is securely fetched from **BigQuery** or uploaded via CSV.")
+st.markdown("Data is securely fetched from **BigQuery** or uploaded via **CSV**.")
 
 # ==============================
-# BIGQUERY CONNECTION
+# SESSION STATE INITIALIZATION
 # ==============================
-credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["bigquery"]
-)
-project_id = st.secrets["bigquery"]["project_id"]
+if "df" not in st.session_state:
+    st.session_state.df = None
+if "data_source" not in st.session_state:
+    st.session_state.data_source = None
 
-df = None
-fetch_option = st.radio("Select Data Source:", ["BigQuery", "Upload CSV"], horizontal=True)
+# ==============================
+# CREDENTIALS (from .streamlit/secrets.toml)
+# ==============================
+if "bigquery" in st.secrets:
+    credentials = service_account.Credentials.from_service_account_info(st.secrets["bigquery"])
+    project_id = st.secrets["bigquery"]["project_id"]
+else:
+    credentials = None
+    project_id = None
 
-if fetch_option == "BigQuery":
+# ==============================
+# DATA SOURCE SELECTION
+# ==============================
+st.subheader("Select Data Source:")
+data_source = st.radio("Choose source:", ["BigQuery", "Upload CSV"], index=0)
+
+st.session_state.data_source = data_source
+
+if data_source == "BigQuery":
     if st.button("🔗 Fetch Data from BigQuery"):
         try:
             client = bigquery.Client(credentials=credentials, project=project_id)
@@ -39,26 +55,30 @@ if fetch_option == "BigQuery":
             """
             df = client.query(query).to_dataframe()
 
-            # Parse dates
+            # Parse date fields
             df["Invoice_Date"] = pd.to_datetime(df["Invoice_Date"], errors="coerce")
             df["Due_Date"] = pd.to_datetime(df["Due_Date"], errors="coerce")
             df["Last_Payment_Date"] = pd.to_datetime(df["Last_Payment_Date"], errors="coerce")
 
+            st.session_state.df = df
             st.success("✅ Data successfully fetched from BigQuery!")
 
         except Exception as e:
             st.error(f"❌ Error fetching data: {e}")
 
-elif fetch_option == "Upload CSV":
-    uploaded_file = st.file_uploader("📂 Upload AR CSV file", type=["csv"])
+elif data_source == "Upload CSV":
+    uploaded_file = st.file_uploader("Upload your AR CSV file", type=["csv"])
     if uploaded_file:
         df = pd.read_csv(uploaded_file, parse_dates=["Invoice_Date", "Due_Date", "Last_Payment_Date"])
+        st.session_state.df = df
         st.success("✅ File successfully uploaded and parsed.")
 
 # ==============================
-# ANALYTICS SECTION
+# MAIN DASHBOARD (only if df exists)
 # ==============================
-if df is not None:
+if st.session_state.df is not None:
+    df = st.session_state.df
+
     # BASIC CLEANUP
     df["Payment_Delay_Days"] = pd.to_numeric(df["Payment_Delay_Days"], errors="coerce")
     df["Invoice_Amount"] = pd.to_numeric(df["Invoice_Amount"], errors="coerce")
@@ -91,12 +111,13 @@ if df is not None:
         "High_Risk_Flag": "max"
     }).reset_index()
 
+    # RULE-BASED RISK
     customer_summary["Rule_Based_Risk"] = customer_summary["High_Risk_Flag"].apply(
         lambda x: "🔴 High" if x == 1 else "🟢 Low"
     )
 
     # ==============================
-    # ML CLUSTERING
+    # ML CLUSTERING (K-Means)
     # ==============================
     features = customer_summary[[
         "Invoice_Amount", "Outstanding_Amount", "Payment_Delay_Days",
@@ -118,20 +139,26 @@ if df is not None:
     # TRENDS
     # ==============================
     st.subheader("📈 Invoice & Outstanding Trend")
+
     df["Invoice_Month"] = df["Invoice_Date"].dt.to_period("M").astype(str)
     monthly_summary = df.groupby("Invoice_Month")[["Invoice_Amount", "Outstanding_Amount"]].sum().reset_index()
 
-    fig = px.line(monthly_summary, x="Invoice_Month", y=["Invoice_Amount", "Outstanding_Amount"],
-                  labels={"value": "Amount", "variable": "Metric"}, markers=True)
+    fig = px.line(
+        monthly_summary, x="Invoice_Month", y=["Invoice_Amount", "Outstanding_Amount"],
+        labels={"value": "Amount", "variable": "Metric"}, markers=True
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     # ==============================
     # CUSTOMER COMPARISON
     # ==============================
     st.subheader("👥 Compare Customers")
-    fig2 = px.scatter(customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
-                      color="ML_Risk", size="Invoice_Amount", hover_name="Customer_ID",
-                      title="Outstanding vs Delay with ML Risk Clusters")
+
+    fig2 = px.scatter(
+        customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
+        color="ML_Risk", size="Invoice_Amount", hover_name="Customer_ID",
+        title="Outstanding vs Delay with ML Risk Clusters"
+    )
     st.plotly_chart(fig2, use_container_width=True)
 
     # ==============================
@@ -176,7 +203,7 @@ if df is not None:
         pdf.set_font("Arial", "B", 14)
         pdf.cell(200, 10, txt="Customer AR Summary Report", ln=True, align='C')
         pdf.set_font("Arial", size=12)
-        for _, row in data.iterrows():
+        for i, row in data.iterrows():
             pdf.ln(5)
             pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Rule Risk: {row['Rule_Based_Risk']} | ML Risk: {row['ML_Risk']}", ln=True)
             pdf.cell(200, 10, txt=f"Total Invoice: ₹{row['Invoice_Amount']:,.0f}, Outstanding: ₹{row['Outstanding_Amount']:,.0f}", ln=True)
@@ -188,4 +215,4 @@ if df is not None:
     st.download_button("📄 Download PDF Report", data=pdf_file, file_name="customer_summary.pdf")
 
 else:
-    st.info("ℹ️ Please fetch data from BigQuery or upload a CSV to proceed.")
+    st.info("ℹ️ Please load data from BigQuery or CSV to proceed.")
