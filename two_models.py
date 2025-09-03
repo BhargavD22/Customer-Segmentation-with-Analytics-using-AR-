@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import streamlit as st
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -45,18 +46,29 @@ def preprocess_data(df):
     current_date = pd.Timestamp.now().normalize()
     df['Days_Past_Due'] = (current_date - df['Due_Date']).dt.days
     
-    # Handle NaNs in numerical columns
-    df['Payment_to_Invoice_Ratio'] = df['Payment_to_Invoice_Ratio'].fillna(0)
-    
     # Select features for the model
     features = ['Invoice_Amount', 'Outstanding_Amount', 'Payment_Delay_Days',
                 'Partial_Payment_Flag', 'Payment_Consistency_Index',
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
                 'Response_to_Reminder_Ratio', 'Days_Past_Due', 'Payment_to_Invoice_Ratio']
     
-    # Drop rows that contain any missing values in the feature set.
+    # --- CRITICAL FIX ---
+    # 1. Convert all features to a numeric type, coercing errors to NaN.
+    #    This catches non-numeric values that were not standard NaNs.
+    for col in features:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # 2. Replace any remaining inf values (e.g., from division by zero) with NaN.
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    
+    # 3. Drop all rows where any of the features have a NaN value.
     df_processed = df.dropna(subset=features)
     
+    # Check if the target column exists before proceeding
+    if 'High_Risk_Flag' not in df_processed.columns:
+        st.error("The 'High_Risk_Flag' column is missing from the dataset. Cannot train model.")
+        return None, None
+        
     return df_processed, features
 
 # Function to train and save the model
@@ -96,7 +108,7 @@ def main():
     # Load and preprocess data
     df, features = preprocess_data(load_data())
     
-    if df is None or df.empty:
+    if df is None or df.empty or features is None:
         st.warning("Data could not be loaded or is empty after cleaning.")
         return
     
