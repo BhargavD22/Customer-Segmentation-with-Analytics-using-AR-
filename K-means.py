@@ -3,11 +3,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import matplotlib.pyplot as plt
-from fpdf import FPDF
 import io
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from fpdf import FPDF
+from google.cloud import bigquery
+from google.oauth2 import service_account
 
 # ==============================
 # PAGE CONFIG
@@ -15,22 +16,74 @@ from sklearn.cluster import KMeans
 st.set_page_config(layout="wide", page_title="AR Analytics & Customer Segmentation")
 
 st.title("📊 Customer AR Insights Dashboard")
-st.markdown("Upload your AR dataset CSV to get insights, KPIs, segmentation, clustering, and reports.")
+st.markdown("Data is securely fetched from **BigQuery** (or you can upload a CSV).")
 
 # ==============================
-# FILE UPLOAD
+# BIGQUERY CONNECTION
 # ==============================
-uploaded_file = st.file_uploader("Upload your AR CSV file", type=["csv"])
+credentials = service_account.Credentials.from_service_account_info(
+    st.secrets["bigquery"]
+)
+project_id = st.secrets["bigquery"]["project_id"]
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, parse_dates=["Invoice_Date", "Due_Date", "Last_Payment_Date"])
-    
+df = None
+fetch_option = st.radio("Select Data Source:", ["BigQuery", "Upload CSV"], horizontal=True)
+
+if fetch_option == "BigQuery":
+    dataset_id = st.secrets["bigquery"]["dataset"]
+    table_id = st.secrets["bigquery"]["table"]
+
+    if st.button("🔗 Fetch Data from BigQuery"):
+        try:
+            client = bigquery.Client(credentials=credentials, project=project_id)
+            query = f"""
+                SELECT 
+                    Invoice_No,
+                    Customer_ID,
+                    Customer_Industry,
+                    Invoice_Date,
+                    Due_Date,
+                    Invoice_Amount,
+                    Amount_Paid,
+                    Outstanding_Amount,
+                    Status,
+                    Last_Payment_Date,
+                    Aging_Bucket,
+                    Payment_Delay_Days,
+                    Partial_Payment_Flag,
+                    High_Risk_Flag,
+                    Payment_Consistency_Index,
+                    Credit_Utilization_Velocity,
+                    Negotiation_Frequency,
+                    Response_to_Reminder_Ratio
+                FROM `{project_id}.{dataset_id}.{table_id}`
+            """
+            df = client.query(query).to_dataframe()
+
+            # Parse dates
+            df["Invoice_Date"] = pd.to_datetime(df["Invoice_Date"], errors="coerce")
+            df["Due_Date"] = pd.to_datetime(df["Due_Date"], errors="coerce")
+            df["Last_Payment_Date"] = pd.to_datetime(df["Last_Payment_Date"], errors="coerce")
+
+            st.success("✅ Data successfully fetched from BigQuery!")
+
+        except Exception as e:
+            st.error(f"❌ Error fetching data: {e}")
+
+elif fetch_option == "Upload CSV":
+    uploaded_file = st.file_uploader("📂 Upload AR CSV file", type=["csv"])
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file, parse_dates=["Invoice_Date", "Due_Date", "Last_Payment_Date"])
+        st.success("✅ File successfully uploaded and parsed.")
+
+# ==============================
+# ANALYTICS SECTION
+# ==============================
+if df is not None:
     # BASIC CLEANUP
     df["Payment_Delay_Days"] = pd.to_numeric(df["Payment_Delay_Days"], errors="coerce")
     df["Invoice_Amount"] = pd.to_numeric(df["Invoice_Amount"], errors="coerce")
     df["Outstanding_Amount"] = pd.to_numeric(df["Outstanding_Amount"], errors="coerce")
-
-    st.success("✅ File successfully uploaded and parsed.")
 
     # ==============================
     # KPI SECTION
@@ -59,14 +112,17 @@ if uploaded_file:
         "High_Risk_Flag": "max"
     }).reset_index()
 
-    # RULE-BASED RISK (from dataset)
-    customer_summary["Rule_Based_Risk"] = customer_summary["High_Risk_Flag"].apply(lambda x: "🔴 High" if x == 1 else "🟢 Low")
+    customer_summary["Rule_Based_Risk"] = customer_summary["High_Risk_Flag"].apply(
+        lambda x: "🔴 High" if x == 1 else "🟢 Low"
+    )
 
     # ==============================
-    # ML CLUSTERING (K-Means)
+    # ML CLUSTERING
     # ==============================
-    features = customer_summary[["Invoice_Amount", "Outstanding_Amount", "Payment_Delay_Days", 
-                                 "Payment_Consistency_Index", "Response_to_Reminder_Ratio"]].fillna(0)
+    features = customer_summary[[
+        "Invoice_Amount", "Outstanding_Amount", "Payment_Delay_Days",
+        "Payment_Consistency_Index", "Response_to_Reminder_Ratio"
+    ]].fillna(0)
 
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(features)
@@ -74,7 +130,6 @@ if uploaded_file:
     kmeans = KMeans(n_clusters=3, random_state=42, n_init="auto")
     customer_summary["Cluster"] = kmeans.fit_predict(scaled_features)
 
-    # Map clusters to human-readable risk scores
     risk_labels = {0: "🟢 Low", 1: "🟡 Medium", 2: "🔴 High"}
     customer_summary["ML_Risk"] = customer_summary["Cluster"].map(risk_labels)
 
@@ -84,7 +139,6 @@ if uploaded_file:
     # TRENDS
     # ==============================
     st.subheader("📈 Invoice & Outstanding Trend")
-
     df["Invoice_Month"] = df["Invoice_Date"].dt.to_period("M").astype(str)
     monthly_summary = df.groupby("Invoice_Month")[["Invoice_Amount", "Outstanding_Amount"]].sum().reset_index()
 
@@ -96,7 +150,6 @@ if uploaded_file:
     # CUSTOMER COMPARISON
     # ==============================
     st.subheader("👥 Compare Customers")
-
     fig2 = px.scatter(customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
                       color="ML_Risk", size="Invoice_Amount", hover_name="Customer_ID",
                       title="Outstanding vs Delay with ML Risk Clusters")
@@ -144,7 +197,7 @@ if uploaded_file:
         pdf.set_font("Arial", "B", 14)
         pdf.cell(200, 10, txt="Customer AR Summary Report", ln=True, align='C')
         pdf.set_font("Arial", size=12)
-        for i, row in data.iterrows():
+        for _, row in data.iterrows():
             pdf.ln(5)
             pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Rule Risk: {row['Rule_Based_Risk']} | ML Risk: {row['ML_Risk']}", ln=True)
             pdf.cell(200, 10, txt=f"Total Invoice: ₹{row['Invoice_Amount']:,.0f}, Outstanding: ₹{row['Outstanding_Amount']:,.0f}", ln=True)
@@ -156,4 +209,4 @@ if uploaded_file:
     st.download_button("📄 Download PDF Report", data=pdf_file, file_name="customer_summary.pdf")
 
 else:
-    st.warning("⚠️ Please upload a valid AR CSV to proceed.")
+    st.info("ℹ️ Please fetch data from BigQuery or upload a CSV to proceed.")
