@@ -81,14 +81,15 @@ col4.metric("📊 Total Customers", f"{df['Customer_ID'].nunique()}")
 st.markdown("---")
 
 # K-MEANS SEGMENTATION
-st.subheader("📊 Customer Segmentation using K-Means")
+st.subheader("📊 K-Means Customer Segmentation")
 
 features = df.groupby("Customer_ID").agg(
     Outstanding_Amount=("Outstanding_Amount", "sum"),
     Payment_Delay_Days=("Payment_Delay_Days", "mean")
 ).reset_index()
 
-num_clusters = st.slider("Select the number of customer segments (K)", min_value=2, max_value=10, value=3)
+# Use k=2 for comparison with High_Risk_Flag
+num_clusters = 2
 
 scaler = StandardScaler()
 scaled_features = scaler.fit_transform(features[["Outstanding_Amount", "Payment_Delay_Days"]])
@@ -108,6 +109,12 @@ customer_summary = pd.merge(customer_summary, features[["Customer_ID", "Cluster"
 customer_summary["Risk_Score"] = customer_summary["High_Risk_Flag"].apply(lambda x: "🔴 High" if x == 1 else "🟢 Low")
 
 st.dataframe(customer_summary)
+
+# Compare K-Means Clusters with Existing Risk Flags
+st.subheader("Comparison: K-Means Clusters vs. High-Risk Flags")
+comparison_table = pd.crosstab(customer_summary["Cluster"], customer_summary["Risk_Score"])
+st.dataframe(comparison_table)
+st.write("This table shows how many customers from each original risk category were placed into each K-Means cluster.")
 
 # TREND VISUALS
 st.subheader("📈 Invoice & Outstanding Trend")
