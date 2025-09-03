@@ -1,9 +1,7 @@
 streamlit
 pandas
 plotly
-matplotlib
-fpdf
-xlsxwriter
 scikit-learn
-
-
+fpdf
+google-cloud-bigquery
+google-auth
