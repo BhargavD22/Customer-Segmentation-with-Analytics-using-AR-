@@ -1,10 +1,9 @@
 import pandas as pd
 import streamlit as st
-import joblib
 from google.cloud import bigquery
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 # Function to connect to BigQuery and fetch data
 @st.cache_data
@@ -47,10 +46,12 @@ def preprocess_data(df):
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
                 'Response_to_Reminder_Ratio', 'Days_Past_Due', 'Payment_to_Invoice_Ratio']
     
-    # Handle potential NaNs in features
-    df = df.dropna(subset=['Payment_Delay_Days'])
+    # --- CRITICAL FIX ---
+    # Drop rows that contain any missing values in the feature set.
+    # This prevents the ValueError from non-finite numbers.
+    df_processed = df.dropna(subset=features)
     
-    return df, features
+    return df_processed, features
 
 # Function to train and save the model
 def train_model(df, features):
@@ -87,12 +88,11 @@ def main():
     st.title("Accounts Receivable Predictive Dashboard 🔮")
 
     # Load and preprocess data
-    df = load_data()
+    df, features = preprocess_data(load_data())
+    
     if df is None or df.empty:
-        st.warning("Data could not be loaded. Please check your credentials and table name.")
+        st.warning("Data could not be loaded or is empty after cleaning.")
         return
-
-    df, features = preprocess_data(df)
     
     st.info("Training the predictive model... This may take a moment.")
     model = train_model(df, features)
