@@ -87,6 +87,18 @@ def generate_pdf(data):
     return pdf_output.getvalue()
 
 # ==============================
+# HELPER: CARD STYLING
+# ==============================
+def style_card(value, thresholds, colors):
+    if value >= thresholds[0]:
+        color = colors[0]   # red
+    elif value >= thresholds[1]:
+        color = colors[1]   # yellow
+    else:
+        color = colors[2]   # green
+    return f"background-color:{color}; padding:20px; border-radius:12px; text-align:center; font-size:18px;"
+
+# ==============================
 # MAIN APP
 # ==============================
 with st.spinner("Fetching data from BigQuery..."):
@@ -94,23 +106,44 @@ with st.spinner("Fetching data from BigQuery..."):
 
 st.success("✅ Data successfully loaded from BigQuery")
 
-# Summary metrics
+# ==============================
+# BUSINESS KPIs (Stylish)
+# ==============================
 st.subheader("📌 Key Business KPIs")
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("💰 Total Invoice", f"₹ {df['Invoice_Amount'].sum():,.0f}")
-col2.metric("📉 Total Outstanding", f"₹ {df['Outstanding_Amount'].sum():,.0f}")
-col3.metric("⏱️ Avg Payment Delay", f"{df['Payment_Delay_Days'].mean():.2f} days")
-col4.metric("📈 Avg Consistency Index", f"{df['Payment_Consistency_Index'].mean():.2f}")
-col5.metric("📬 Avg Response Ratio", f"{df['Response_to_Reminder_Ratio'].mean():.2f}")
+
+total_invoice = df['Invoice_Amount'].sum()
+total_outstanding = df['Outstanding_Amount'].sum()
+avg_delay = df['Payment_Delay_Days'].mean()
+avg_consistency = df['Payment_Consistency_Index'].mean()
+avg_response = df['Response_to_Reminder_Ratio'].mean()
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown(f"<div style='{style_card(total_outstanding, [1_000_000, 500_000], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                f"💰 <b>Total Invoice:</b> ₹{total_invoice:,.0f}<br>"
+                f"📌 <b>Total Outstanding:</b> ₹{total_outstanding:,.0f}</div>", unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"<div style='{style_card(avg_delay, [30, 10], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                f"⏱️ <b>Avg Payment Delay:</b> {avg_delay:.2f} days</div>", unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"<div style='{style_card(avg_consistency, [0.5, 0.8], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                f"📈 <b>Avg Consistency Index:</b> {avg_consistency:.2f}<br>"
+                f"📬 <b>Avg Response Ratio:</b> {avg_response:.2f}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
-# Customer Summary
+# ==============================
+# CUSTOMER SUMMARY
+# ==============================
 st.subheader("📊 Customer Segmentation & Risk Overview")
 customer_summary = get_customer_summary(df)
 st.dataframe(customer_summary)
 
-# ✅ Restore Original Graph
+# ==============================
+# SEGMENTATION GRAPH
+# ==============================
 st.subheader("👥 Customer Segmentation Visualization")
 fig = px.scatter(
     customer_summary,
@@ -124,7 +157,9 @@ fig = px.scatter(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# Individual Customer View
+# ==============================
+# INDIVIDUAL CUSTOMER VIEW
+# ==============================
 st.subheader("🔍 Individual Customer View")
 selected_customer = st.selectbox("Select Customer ID", customer_summary["Customer_ID"].unique())
 
@@ -132,19 +167,48 @@ if selected_customer:
     cust_data = df[df["Customer_ID"] == selected_customer]
     cust_summary = customer_summary[customer_summary["Customer_ID"] == selected_customer]
 
-    st.write("### Customer Metrics")
-    st.metric("Total Invoice Amount", f"₹ {cust_summary['Invoice_Amount'].values[0]:,.0f}")
-    st.metric("Total Outstanding", f"₹ {cust_summary['Outstanding_Amount'].values[0]:,.0f}")
-    st.metric("Avg Payment Delay", f"{cust_summary['Payment_Delay_Days'].values[0]:.2f} days")
-    st.metric("Consistency Index", f"{cust_summary['Payment_Consistency_Index'].values[0]:.2f}")
-    st.metric("Reminder Response Ratio", f"{cust_summary['Response_to_Reminder_Ratio'].values[0]:.2f}")
-    st.metric("Rule-Based Risk", cust_summary["Rule_Based_Risk"].values[0])
-    st.metric("ML Cluster Risk", cust_summary["ML_Risk"].values[0])
+    st.write("### 🎯 Customer Metrics (Stylish Dashboard)")
 
-    st.write("### Invoices")
+    # Extract values
+    total_invoice = cust_summary['Invoice_Amount'].values[0]
+    outstanding = cust_summary['Outstanding_Amount'].values[0]
+    delay = cust_summary['Payment_Delay_Days'].values[0]
+    consistency = cust_summary['Payment_Consistency_Index'].values[0]
+    response = cust_summary['Response_to_Reminder_Ratio'].values[0]
+    rule_risk = cust_summary['Rule_Based_Risk'].values[0]
+    ml_risk = cust_summary['ML_Risk'].values[0]
+
+    # KPI Cards in Grid
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"<div style='{style_card(outstanding, [100000, 50000], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                    f"💰 <b>Total Invoice:</b> ₹{total_invoice:,.0f}<br>"
+                    f"📌 <b>Outstanding:</b> ₹{outstanding:,.0f}</div>", unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"<div style='{style_card(delay, [30, 10], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                    f"⏱️ <b>Avg Payment Delay:</b> {delay:.2f} days</div>", unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"<div style='{style_card(consistency, [0.5, 0.8], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                    f"📈 <b>Consistency Index:</b> {consistency:.2f}</div>", unsafe_allow_html=True)
+
+    col4, col5 = st.columns(2)
+    with col4:
+        st.markdown(f"<div style='{style_card(response, [0.5, 0.8], ['#ff4c4c','#FFD700','#90EE90'])}'>"
+                    f"📬 <b>Reminder Response:</b> {response:.2f}</div>", unsafe_allow_html=True)
+
+    with col5:
+        st.markdown(f"<div style='background-color:#D3D3D3; padding:20px; border-radius:12px; text-align:center; font-size:18px;'>"
+                    f"⚖️ <b>Rule-Based Risk:</b> {rule_risk}<br>"
+                    f"🤖 <b>ML Risk:</b> {ml_risk}</div>", unsafe_allow_html=True)
+
+    st.write("### 📑 Customer Invoices")
     st.dataframe(cust_data)
 
-# Export PDF
+# ==============================
+# EXPORT PDF
+# ==============================
 st.subheader("📤 Export Reports")
 pdf_file = generate_pdf(customer_summary)
 st.download_button("📄 Download PDF Report", data=pdf_file, file_name="customer_summary.pdf")
