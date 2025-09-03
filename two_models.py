@@ -7,18 +7,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
+# Hard-code the project ID here
+GCP_PROJECT_ID = "mss-data-engineer-sandbox"
+
 # Function to connect to BigQuery and fetch data
 @st.cache_data
 def load_data():
-    """Loads data from a BigQuery table using secrets."""
+    """Loads data from a BigQuery table using hard-coded project ID."""
     try:
-        # Create a credentials object from the secrets dictionary
-        credentials = service_account.Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"]
-        )
-        
-        # Initialize BigQuery client with the credentials object
-        client = bigquery.Client(credentials=credentials)
+        # Initialize BigQuery client with the hard-coded project ID
+        client = bigquery.Client(project=GCP_PROJECT_ID)
         
         # SQL query to fetch data from your specified BigQuery table
         query = """
@@ -29,7 +27,7 @@ def load_data():
         return df
     except Exception as e:
         st.error(f"Error fetching data from BigQuery: {e}")
-        st.warning("Please check your Streamlit secrets and BigQuery table. Using local CSV for demonstration.")
+        st.warning("Please check your BigQuery table. Using local CSV for demonstration.")
         # Fallback to local CSV for demonstration if BQ connection fails
         return pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
@@ -52,16 +50,14 @@ def preprocess_data(df):
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
                 'Response_to_Reminder_Ratio', 'Days_Past_Due', 'Payment_to_Invoice_Ratio']
     
-    # --- CRITICAL FIX ---
-    # 1. Convert all features to a numeric type, coercing errors to NaN.
-    #    This catches non-numeric values that were not standard NaNs.
+    # Convert all features to a numeric type, coercing errors to NaN.
     for col in features:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # 2. Replace any remaining inf values (e.g., from division by zero) with NaN.
+    # Replace any remaining inf values with NaN.
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
-    # 3. Drop all rows where any of the features have a NaN value.
+    # Drop all rows where any of the features have a NaN value.
     df_processed = df.dropna(subset=features)
     
     # Check if the target column exists before proceeding
