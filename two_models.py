@@ -12,18 +12,15 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 def load_data():
     """Loads data from a BigQuery table using credentials from environment or Streamlit secrets."""
     try:
-        # Check if secrets are available (for Streamlit Cloud deployment)
         if st.secrets.get("gcp_service_account"):
             credentials = service_account.Credentials.from_service_account_info(
                 st.secrets["gcp_service_account"]
             )
             client = bigquery.Client(credentials=credentials)
         else:
-            # Fallback for local execution using GOOGLE_APPLICATION_CREDENTIALS
             st.warning("No secrets found. Attempting to authenticate locally.")
             client = bigquery.Client()
 
-        # SQL query to fetch data from your specified BigQuery table
         query = """
             SELECT * FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
         """
@@ -33,7 +30,6 @@ def load_data():
     except Exception as e:
         st.error(f"Error fetching data from BigQuery: {e}")
         st.warning("Please check your credentials and BigQuery table. Using local CSV for demonstration.")
-        # Fallback to local CSV for demonstration if BQ connection fails
         return pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
 # Function for data preprocessing and feature engineering
@@ -48,7 +44,6 @@ def preprocess_data(df):
     current_date = pd.Timestamp.now().normalize()
     df['Days_Past_Due'] = (current_date - df['Due_Date']).dt.days
     
-    # Select features for the model
     features = ['Invoice_Amount', 'Outstanding_Amount', 'Payment_Delay_Days',
                 'Partial_Payment_Flag', 'Payment_Consistency_Index',
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
@@ -111,6 +106,29 @@ def main():
     
     df['risk_probability'] = model.predict_proba(df[features])[:, 1]
     
+    # --- Start of New Clustering Logic ---
+    # Define clustering logic
+    def get_risk_cluster(prob):
+        if prob >= 0.7:
+            return 'High Risk'
+        elif 0.4 <= prob < 0.7:
+            return 'Medium Risk'
+        else:
+            return 'Low Risk'
+
+    df['Risk_Cluster'] = df['risk_probability'].apply(get_risk_cluster)
+    
+    # Define colors for clustering
+    cluster_colors = {
+        'High Risk': 'red',
+        'Medium Risk': 'yellow',
+        'Low Risk': 'green'
+    }
+    
+    # Map cluster names to hex colors for the scatter chart
+    df['Cluster_Color'] = df['Risk_Cluster'].map(cluster_colors)
+    # --- End of New Clustering Logic ---
+    
     st.sidebar.header("Filter by Customer Industry")
     industries = ['All'] + sorted(df['Customer_Industry'].unique().tolist())
     selected_industry = st.sidebar.selectbox("Select an industry:", industries)
@@ -156,22 +174,31 @@ def main():
         
     with col_b:
         st.subheader("Invoice Amount vs. Risk Probability")
-        st.scatter_chart(df_display, x='Invoice_Amount', y='risk_probability', color='Customer_Industry')
-        
-    st.subheader("Distribution of Payment Delays")
-    st.hist_chart(df_display, x='Payment_Delay_Days', bins=50)
+        # Use a dictionary to set colors for the scatter chart
+        st.scatter_chart(df_display, x='Invoice_Amount', y='risk_probability', color='Cluster_Color')
+
+    col_c, col_d = st.columns(2)
+    with col_c:
+        st.subheader("Distribution of Payment Delays")
+        st.hist_chart(df_display, x='Payment_Delay_Days', bins=50)
+
+    with col_d:
+        st.subheader("Count of Customers by Risk Cluster")
+        cluster_counts = df_display['Risk_Cluster'].value_counts()
+        st.bar_chart(cluster_counts, color=['#FF0000', '#FFFF00', '#00FF00']) # Using hex codes for color
 
     st.subheader("Invoices Sorted by Risk Probability (Highest First)")
     
     display_cols = ['Invoice_No', 'Customer_ID', 'Customer_Industry', 'Outstanding_Amount', 
-                    'Status', 'Days_Past_Due', 'risk_probability']
+                    'Status', 'Days_Past_Due', 'risk_probability', 'Risk_Cluster']
     
     df_display['Outstanding_Amount'] = df_display['Outstanding_Amount'].apply(lambda x: f'${x:,.2f}')
     df_display['risk_probability'] = df_display['risk_probability'].apply(lambda x: f'{x:.2%}')
     
     st.dataframe(df_display[display_cols].rename(columns={
         'risk_probability': 'Predicted Risk Probability',
-        'Outstanding_Amount': 'Outstanding Amount'
+        'Outstanding_Amount': 'Outstanding Amount',
+        'Risk_Cluster': 'Customer Risk Cluster'
     }))
 
 if __name__ == "__main__":
