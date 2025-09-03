@@ -5,7 +5,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 # Hard-code the project ID here
 GCP_PROJECT_ID = "mss-data-engineer-sandbox"
@@ -15,7 +15,7 @@ GCP_PROJECT_ID = "mss-data-engineer-sandbox"
 def load_data():
     """Loads data from a BigQuery table using hard-coded project ID."""
     try:
-        # Initialize BigQuery client with the hard-coded project ID
+        # NOTE: This assumes you have set up your Google Cloud credentials
         client = bigquery.Client(project=GCP_PROJECT_ID)
         
         # SQL query to fetch data from your specified BigQuery table
@@ -100,6 +100,7 @@ def train_model(df, features):
 def main():
     st.set_page_config(layout="wide", page_title="AR Predictive Collections Dashboard")
     st.title("Accounts Receivable Predictive Dashboard 🔮")
+    st.markdown("A proactive tool to predict and prioritize high-risk invoices, powered by machine learning.")
 
     # Load and preprocess data
     df, features = preprocess_data(load_data())
@@ -114,6 +115,8 @@ def main():
     # Generate predictions
     df['risk_probability'] = model.predict_proba(df[features])[:, 1]
     
+    # --- Start of New Visualizations and KPIs ---
+    
     # Create sidebar for filtering
     st.sidebar.header("Filter by Customer Industry")
     industries = ['All'] + sorted(df['Customer_Industry'].unique().tolist())
@@ -126,24 +129,46 @@ def main():
 
     # Sort invoices by risk score
     df_display = df_display.sort_values(by='risk_probability', ascending=False)
-    
-    # KPI metrics
-    col1, col2, col3 = st.columns(3)
+
+    st.header("Key Performance Indicators 📈")
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         total_outstanding = df_display['Outstanding_Amount'].sum()
-        st.metric(label="Total Outstanding Amount 💰", value=f"${total_outstanding:,.2f}")
+        st.metric(label="Total Outstanding 💰", value=f"${total_outstanding:,.2f}")
     
     with col2:
         high_risk_invoices = df_display[df_display['risk_probability'] >= 0.5].shape[0]
-        total_invoices = df_display.shape[0]
-        st.metric(label="High-Risk Invoices ⚠️", value=f"{high_risk_invoices} of {total_invoices}")
+        st.metric(label="High-Risk Invoices ⚠️", value=f"{high_risk_invoices}")
     
     with col3:
         avg_payment_delay = df_display['Payment_Delay_Days'].mean()
         st.metric(label="Avg. Payment Delay (Days) ⏳", value=f"{avg_payment_delay:.2f}")
     
-    # Main table display
+    with col4:
+        avg_invoice_amount = df_display['Invoice_Amount'].mean()
+        st.metric(label="Avg. Invoice Amount 🧾", value=f"${avg_invoice_amount:,.2f}")
+
+    with col5:
+        avg_risk_score = df_display['risk_probability'].mean()
+        st.metric(label="Avg. Risk Score ⭐", value=f"{avg_risk_score:.2%}")
+
+    st.header("Visual Insights 📊")
+    
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
+        st.subheader("Outstanding Amount by Industry")
+        industry_summary = df_display.groupby('Customer_Industry')['Outstanding_Amount'].sum().sort_values(ascending=False)
+        st.bar_chart(industry_summary)
+        
+    with col_b:
+        st.subheader("Invoice Amount vs. Risk Probability")
+        st.scatter_chart(df_display, x='Invoice_Amount', y='risk_probability', color='Customer_Industry')
+        
+    st.subheader("Distribution of Payment Delays")
+    st.hist_chart(df_display, x='Payment_Delay_Days', bins=50)
+
     st.subheader("Invoices Sorted by Risk Probability (Highest First)")
     
     # Display the most relevant columns
