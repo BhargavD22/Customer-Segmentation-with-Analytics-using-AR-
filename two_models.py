@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import joblib
 from google.cloud import bigquery
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -8,10 +9,15 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 # Function to connect to BigQuery and fetch data
 @st.cache_data
 def load_data():
-    """Loads data from a BigQuery table."""
+    """Loads data from a BigQuery table using secrets."""
     try:
-        # NOTE: This assumes you have set up your Google Cloud credentials
-        client = bigquery.Client(project='mss-data-engineer-sandbox')
+        # --- CHANGES ARE HERE ---
+        # Initialize BigQuery client using credentials from secrets
+        client = bigquery.Client(
+            project=st.secrets["gcp_service_account"]["project_id"],
+            credentials=st.secrets["gcp_service_account"]
+        )
+        
         query = """
             SELECT * FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
         """
@@ -20,11 +26,13 @@ def load_data():
         return df
     except Exception as e:
         st.error(f"Error fetching data from BigQuery: {e}")
-        st.warning("Please ensure your credentials are set up and the table exists. Using local CSV for demonstration.")
+        st.warning("Please check your Streamlit secrets and BigQuery table. Using local CSV for demonstration.")
         # Fallback to local CSV for demonstration if BQ connection fails
         return pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
-# Function for data preprocessing and feature engineering
+# The rest of the script (preprocess_data, train_model, main) remains the same.
+# The previous fix for the ValueError is already included here.
+
 def preprocess_data(df):
     """Cleans data and creates new features for the model."""
     df['Invoice_Date'] = pd.to_datetime(df['Invoice_Date'])
@@ -53,7 +61,6 @@ def preprocess_data(df):
     
     return df_processed, features
 
-# Function to train and save the model
 def train_model(df, features):
     """Trains a Random Forest Classifier and returns the model."""
     X = df[features]
@@ -82,7 +89,6 @@ def train_model(df, features):
     
     return model
 
-# Main application logic
 def main():
     st.set_page_config(layout="wide", page_title="AR Predictive Collections Dashboard")
     st.title("Accounts Receivable Predictive Dashboard 🔮")
