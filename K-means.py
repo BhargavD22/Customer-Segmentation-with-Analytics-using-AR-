@@ -80,23 +80,11 @@ col4.metric("📊 Total Customers", f"{df['Customer_ID'].nunique()}")
 
 st.markdown("---")
 
-# K-MEANS SEGMENTATION
-st.subheader("📊 K-Means Customer Segmentation")
+# RULE-BASED SEGMENTATION
+st.subheader("📊 Rule-Based Customer Segmentation")
+st.write("Customers are segmented as High, Medium, or Low Risk based on business rules.")
 
-features = df.groupby("Customer_ID").agg(
-    Outstanding_Amount=("Outstanding_Amount", "sum"),
-    Payment_Delay_Days=("Payment_Delay_Days", "mean")
-).reset_index()
-
-# Use k=2 for comparison with High_Risk_Flag
-num_clusters = 2
-
-scaler = StandardScaler()
-scaled_features = scaler.fit_transform(features[["Outstanding_Amount", "Payment_Delay_Days"]])
-
-kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-features["Cluster"] = kmeans.fit_predict(scaled_features)
-
+# Aggregate data for segmentation
 customer_summary = df.groupby("Customer_ID").agg({
     "Invoice_Amount": "sum",
     "Outstanding_Amount": "sum",
@@ -105,16 +93,19 @@ customer_summary = df.groupby("Customer_ID").agg({
     "Response_to_Reminder_Ratio": "mean",
     "High_Risk_Flag": "max"
 }).reset_index()
-customer_summary = pd.merge(customer_summary, features[["Customer_ID", "Cluster"]], on="Customer_ID")
-customer_summary["Risk_Score"] = customer_summary["High_Risk_Flag"].apply(lambda x: "🔴 High" if x == 1 else "🟢 Low")
+
+# Define Risk Score based on High_Risk_Flag and a new rule for Medium Risk
+def get_risk_score(row):
+    if row['High_Risk_Flag'] == 1:
+        return "🔴 High"
+    elif row['Payment_Delay_Days'] > 15: # Arbitrary threshold for Medium Risk
+        return "🟡 Medium"
+    else:
+        return "🟢 Low"
+
+customer_summary["Risk_Score"] = customer_summary.apply(get_risk_score, axis=1)
 
 st.dataframe(customer_summary)
-
-# Compare K-Means Clusters with Existing Risk Flags
-st.subheader("Comparison: K-Means Clusters vs. High-Risk Flags")
-comparison_table = pd.crosstab(customer_summary["Cluster"], customer_summary["Risk_Score"])
-st.dataframe(comparison_table)
-st.write("This table shows how many customers from each original risk category were placed into each K-Means cluster.")
 
 # TREND VISUALS
 st.subheader("📈 Invoice & Outstanding Trend")
@@ -130,8 +121,9 @@ st.plotly_chart(fig, use_container_width=True)
 st.subheader("👥 Compare Customers")
 
 fig2 = px.scatter(customer_summary, x="Payment_Delay_Days", y="Outstanding_Amount",
-                  color="Cluster", size="Invoice_Amount", hover_name="Customer_ID",
-                  title="Customer Clusters based on Outstanding and Payment Delay")
+                  color="Risk_Score", size="Invoice_Amount", hover_name="Customer_ID",
+                  title="Customer Risk based on Outstanding and Payment Delay",
+                  color_discrete_map={"🔴 High": "red", "🟡 Medium": "orange", "🟢 Low": "green"})
 st.plotly_chart(fig2, use_container_width=True)
 
 # INDIVIDUAL CUSTOMER VIEW
@@ -148,7 +140,7 @@ if selected_customer:
     st.metric("Avg Payment Delay", f"{cust_summary['Payment_Delay_Days'].values[0]:.2f} days")
     st.metric("Consistency Index", f"{cust_summary['Payment_Consistency_Index'].values[0]:.2f}")
     st.metric("Reminder Response Ratio", f"{cust_summary['Response_to_Reminder_Ratio'].values[0]:.2f}")
-    st.metric("K-Means Cluster", cust_summary["Cluster"].values[0])
+    st.metric("Risk Score", cust_summary["Risk_Score"].values[0])
 
     st.write("### Invoices")
     st.dataframe(cust_data)
@@ -173,7 +165,7 @@ def generate_pdf(data):
     pdf.set_font("Arial", size=12)
     for i, row in data.iterrows():
         pdf.ln(5)
-        pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Cluster: {row['Cluster']}", ln=True)
+        pdf.cell(200, 10, txt=f"Customer: {row['Customer_ID']} | Risk Score: {row['Risk_Score']}", ln=True)
         pdf.cell(200, 10, txt=f"Total Invoice: ₹{row['Invoice_Amount']:,.0f}, Outstanding: ₹{row['Outstanding_Amount']:,.0f}", ln=True)
     pdf_output = io.BytesIO()
     pdf.output(pdf_output)
