@@ -1,36 +1,9 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from google.cloud import bigquery
-from google.oauth2 import service_account
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score
-
-# Function to connect to BigQuery and fetch data
-@st.cache_data
-def load_data():
-    """Loads data from a BigQuery table using credentials from environment or Streamlit secrets."""
-    try:
-        if st.secrets.get("gcp_service_account"):
-            credentials = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"]
-            )
-            client = bigquery.Client(credentials=credentials)
-        else:
-            st.warning("No secrets found. Attempting to authenticate locally.")
-            client = bigquery.Client()
-
-        query = """
-            SELECT * FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
-        """
-        query_job = client.query(query)
-        df = query_job.to_dataframe()
-        return df
-    except Exception as e:
-        st.error(f"Error fetching data from BigQuery: {e}")
-        st.warning("Please check your credentials and BigQuery table. Using local CSV for demonstration.")
-        return pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
 # Function for data preprocessing and feature engineering
 def preprocess_data(df):
@@ -44,6 +17,7 @@ def preprocess_data(df):
     current_date = pd.Timestamp.now().normalize()
     df['Days_Past_Due'] = (current_date - df['Due_Date']).dt.days
     
+    # Select features for the model
     features = ['Invoice_Amount', 'Outstanding_Amount', 'Payment_Delay_Days',
                 'Partial_Payment_Flag', 'Payment_Consistency_Index',
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
@@ -94,8 +68,11 @@ def main():
     st.set_page_config(layout="wide", page_title="AR Predictive Collections Dashboard")
     st.title("Accounts Receivable Predictive Dashboard 🔮")
     st.markdown("A proactive tool to predict and prioritize high-risk invoices, powered by machine learning.")
+    
+    # Direct CSV read without a separate function
+    df = pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
-    df, features = preprocess_data(load_data())
+    df, features = preprocess_data(df)
     
     if df is None or df.empty or features is None:
         st.warning("Data could not be loaded or is empty after cleaning.")
@@ -106,8 +83,6 @@ def main():
     
     df['risk_probability'] = model.predict_proba(df[features])[:, 1]
     
-    # --- Start of New Clustering Logic ---
-    # Define clustering logic
     def get_risk_cluster(prob):
         if prob >= 0.7:
             return 'High Risk'
@@ -118,16 +93,13 @@ def main():
 
     df['Risk_Cluster'] = df['risk_probability'].apply(get_risk_cluster)
     
-    # Define colors for clustering
     cluster_colors = {
         'High Risk': 'red',
         'Medium Risk': 'yellow',
         'Low Risk': 'green'
     }
     
-    # Map cluster names to hex colors for the scatter chart
     df['Cluster_Color'] = df['Risk_Cluster'].map(cluster_colors)
-    # --- End of New Clustering Logic ---
     
     st.sidebar.header("Filter by Customer Industry")
     industries = ['All'] + sorted(df['Customer_Industry'].unique().tolist())
@@ -174,7 +146,6 @@ def main():
         
     with col_b:
         st.subheader("Invoice Amount vs. Risk Probability")
-        # Use a dictionary to set colors for the scatter chart
         st.scatter_chart(df_display, x='Invoice_Amount', y='risk_probability', color='Cluster_Color')
 
     col_c, col_d = st.columns(2)
@@ -185,7 +156,7 @@ def main():
     with col_d:
         st.subheader("Count of Customers by Risk Cluster")
         cluster_counts = df_display['Risk_Cluster'].value_counts()
-        st.bar_chart(cluster_counts, color=['#FF0000', '#FFFF00', '#00FF00']) # Using hex codes for color
+        st.bar_chart(cluster_counts, color=['#FF0000', '#FFFF00', '#00FF00'])
 
     st.subheader("Invoices Sorted by Risk Probability (Highest First)")
     
