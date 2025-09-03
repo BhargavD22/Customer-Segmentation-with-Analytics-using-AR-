@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
-from google.oauth2 import service_account  # Import this new library
+from google.oauth2 import service_account
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
@@ -11,7 +11,6 @@ from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_sco
 def load_data():
     """Loads data from a BigQuery table using secrets."""
     try:
-        # --- CHANGES ARE HERE ---
         # Create a credentials object from the secrets dictionary
         credentials = service_account.Credentials.from_service_account_info(
             st.secrets["gcp_service_account"]
@@ -20,6 +19,7 @@ def load_data():
         # Initialize BigQuery client with the credentials object
         client = bigquery.Client(credentials=credentials)
         
+        # SQL query to fetch data from your specified BigQuery table
         query = """
             SELECT * FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
         """
@@ -32,7 +32,7 @@ def load_data():
         # Fallback to local CSV for demonstration if BQ connection fails
         return pd.read_csv('synthetic_ar_dataset_noisy.csv')
 
-# The rest of the script (preprocess_data, train_model, main) remains the same.
+# Function for data preprocessing and feature engineering
 def preprocess_data(df):
     """Cleans data and creates new features for the model."""
     df['Invoice_Date'] = pd.to_datetime(df['Invoice_Date'])
@@ -54,9 +54,7 @@ def preprocess_data(df):
                 'Credit_Utilization_Velocity', 'Negotiation_Frequency',
                 'Response_to_Reminder_Ratio', 'Days_Past_Due', 'Payment_to_Invoice_Ratio']
     
-    # --- CRITICAL FIX ---
     # Drop rows that contain any missing values in the feature set.
-    # This prevents the ValueError from non-finite numbers.
     df_processed = df.dropna(subset=features)
     
     return df_processed, features
