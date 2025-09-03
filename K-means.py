@@ -21,7 +21,7 @@ st.title("📊 Customer Segmentation with AR Analytics")
 # ==============================
 def load_data_from_bigquery():
     credentials = service_account.Credentials.from_service_account_info(
-        dict(st.secrets["bigquery"])   # ✅ use your current [bigquery] section
+        dict(st.secrets["bigquery"])
     )
     client = bigquery.Client(credentials=credentials, project=credentials.project_id)
     query = """
@@ -110,13 +110,18 @@ st.subheader("📊 Customer Segmentation & Risk Overview")
 customer_summary = get_customer_summary(df)
 st.dataframe(customer_summary)
 
-# Scatter Plot
-st.subheader("👥 Customer Comparison")
-fig = px.scatter(customer_summary,
-                 x="Payment_Delay_Days", y="Outstanding_Amount",
-                 color="ML_Risk", size="Invoice_Amount",
-                 hover_name="Customer_ID",
-                 title="Outstanding vs Delay with ML Risk Clusters")
+# ✅ Restore Original Graph
+st.subheader("👥 Customer Segmentation Visualization")
+fig = px.scatter(
+    customer_summary,
+    x="Invoice_Amount",
+    y="Outstanding_Amount",
+    size="Outstanding_Amount",
+    color="ML_Risk",
+    hover_name="Customer_ID",
+    title="Customer Segmentation: Invoice vs Outstanding",
+    labels={"Invoice_Amount": "Total Invoice", "Outstanding_Amount": "Total Outstanding"}
+)
 st.plotly_chart(fig, use_container_width=True)
 
 # Individual Customer View
