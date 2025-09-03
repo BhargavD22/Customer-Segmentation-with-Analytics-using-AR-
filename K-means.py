@@ -31,14 +31,19 @@ st.write("Data is securely fetched from **BigQuery** or uploaded via **CSV**.")
 # ==============================
 @st.cache_data
 def load_data_from_bigquery():
-    creds = service_account.Credentials.from_service_account_info(
-        st.secrets["bigquery"]
-    )
-    client = bigquery.Client(credentials=creds, project=st.secrets["bigquery"]["project_id"])
+    from google.cloud import bigquery
+    from google.oauth2 import service_account
 
-    query = f"""
-        SELECT * 
-        FROM `{st.secrets['bigquery']['project_id']}.{st.secrets['bigquery']['dataset']}.{st.secrets['bigquery']['table']}`
+    # Authenticate
+    credentials = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+
+    
+    query = """
+        SELECT *
+        FROM `mss-data-engineer-sandbox.customer_segmentation_using_AR.csusingar`
     """
     df = client.query(query).to_dataframe()
     return df
